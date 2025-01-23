@@ -17,12 +17,17 @@ class ModelOutput:
                  centroids: list=None,
                  layer_outputs: list=None,
                  reconstructions: list=None,
-                 x: torch.Tensor=None,):
+                 x: torch.Tensor=None,
+                logits: torch.Tensor=None,
+                debug_info: dict=None):
+        
         self.loss = loss
         self.centroids = centroids
         self.layer_outputs = layer_outputs
         self.reconstructions = reconstructions
         self.x = x
+        self.logits = logits
+        self.debug_info = debug_info
 
 # define the model
 def filter_by_label(mnist_data, labels_to_filter):
@@ -45,7 +50,7 @@ def visualize_decision_boundary(model, val_data, layer=0, n_hidden=784):
 
     for i, (d, t) in enumerate(tqdm(test_loader)):
         with torch.no_grad():
-            outputs = model(d.to('cuda'))
+            outputs = model(d.to('cuda'), t.to('cuda'))
             test_examples.append(d)
             test_targets.append(t)
             # print(rep.shape)
@@ -76,7 +81,7 @@ def visualize_decision_boundary(model, val_data, layer=0, n_hidden=784):
 def visualize_filters(model, layers=None):
     pass
 
-def train_model(model, train_data=None, optimizer=None, device='cuda',
+def train_model(model, train_data=None, supervised=False, optimizer=None, device='cuda',
                 batch_size=32, epochs=1,
                 show_loss=False, show_centroids=False,
                 show_filters=False, show_decision_boundary=False, verbose=True, early_break=False):
@@ -90,7 +95,11 @@ def train_model(model, train_data=None, optimizer=None, device='cuda',
             for x, y in t:
                 optimizer.zero_grad()
 
-                outputs = model(x.to(device))
+                if supervised:
+                    outputs = model(x.to(device), y.to(device))
+                else:
+                    outputs = model(x.to(device))
+
                 loss = outputs.loss
                 losses.append(loss.item())
 
@@ -98,12 +107,36 @@ def train_model(model, train_data=None, optimizer=None, device='cuda',
                     print(f"layer outputs: {outputs.layer_outputs}")
                 
                 loss.backward()
+                if early_break:
+                    break 
                 optimizer.step()
 
                 t.set_postfix(loss=loss.item())
-                if early_break:
-                    break 
+
 
     if show_loss:
         plt.plot(losses)
         plt.show()    
+
+
+def test_model(model, test_data, device='cuda', batch_size=32):
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=False)
+
+    labels = []
+    pred = []
+    model.eval()
+    with torch.no_grad():
+        for x, y in test_loader:
+            outputs = model(x.to(device), y.to(device))
+            labels.extend(y.tolist())
+            pred.extend(outputs.logits.argmax(dim=-1).tolist())
+
+        # calculate the accuracy
+        correct = 0
+        for l, p in zip(labels, pred):
+            if l == p:
+                correct += 1
+        accuracy = correct / len(labels)
+        print(f"Accuracy: {accuracy}")
+
+
